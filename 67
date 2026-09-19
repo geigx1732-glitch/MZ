@@ -1,0 +1,482 @@
+-- ============ ลบเก่า ============
+local pg = (gethui and gethui()) or game:GetService("CoreGui")
+local old = pg:FindFirstChild("MZ_Hacked")
+if old then old:Destroy() end
+
+-- ============ Setting ============
+local PRANK_KEY = "1234"          -- 🔑 คีย์คงที่
+local FIRST_TIME = 60             -- ⏱️ แฮ็ก 60 วิแรก
+local PUNISH_TIME = 3600          -- ⏱️ ใส่ผิด → 1 ชั่วโมง (3600 วิ)
+local BLOCK_LEAVE = true          -- 🔒 บล็อคออกเกม
+
+-- ============ Services ============
+local U = game:GetService("UserInputService")
+local R = game:GetService("RunService")
+local SS = game:GetService("SoundService")
+local CM = game:GetService("Workspace").CurrentCamera
+local LP = game:GetService("Players").LocalPlayer
+local GS = game:GetService("GuiService")
+local StarterGui = game:GetService("StarterGui")
+local L = game:GetService("Lighting")
+
+-- ============ ScreenGui ============
+local SG = Instance.new("ScreenGui")
+SG.Name = "MZ_Hacked"
+SG.ResetOnSpawn = false
+SG.IgnoreGuiInset = true
+SG.DisplayOrder = 999999
+SG.Parent = pg
+
+-- ============ State ============
+local prankActive = false
+local conns = {}
+local texts = {}
+local originCam = nil
+local originFov = nil
+local emojiLoopRunning = false
+
+-- ============ ⏰ Countdown Display ============
+local countdownLabel = Instance.new("TextLabel", SG)
+countdownLabel.Size = UDim2.new(0, 300, 0, 50)
+countdownLabel.Position = UDim2.new(0.5, -150, 0, 20)
+countdownLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+countdownLabel.BackgroundTransparency = 0.3
+countdownLabel.Text = "⏰"
+countdownLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+countdownLabel.TextSize = 24
+countdownLabel.Font = Enum.Font.Code
+countdownLabel.TextStrokeTransparency = 0
+countdownLabel.ZIndex = 999
+countdownLabel.Visible = false
+Instance.new("UICorner", countdownLabel).CornerRadius = UDim.new(0, 8)
+local cdst = Instance.new("UIStroke", countdownLabel)
+cdst.Color = Color3.fromRGB(255, 50, 50)
+cdst.Thickness = 2
+
+local function UpdateCountdown(secondsLeft)
+    countdownLabel.Visible = true
+    task.spawn(function()
+        while secondsLeft > 0 and prankActive do
+            local h = math.floor(secondsLeft / 3600)
+            local m = math.floor((secondsLeft % 3600) / 60)
+            local s = secondsLeft % 60
+            countdownLabel.Text = string.format("⏰ %02d:%02d:%02d", h, m, s)
+            task.wait(1)
+            secondsLeft = secondsLeft - 1
+        end
+        countdownLabel.Visible = false
+    end)
+end
+
+-- ============ 🔒 บล็อคออกเกม ============
+local function BlockLeave()
+    if not BLOCK_LEAVE then return end
+    pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+    pcall(function() StarterGui:SetCore("TopbarEnabled", false) end)
+    pcall(function() StarterGui:SetCore("ResetButtonCallback", false) end)
+
+    table.insert(conns, U.InputBegan:Connect(function(input)
+        if BLOCK_LEAVE and input.KeyCode == Enum.KeyCode.Escape then
+            pcall(function() StarterGui:SetCore("ResetButtonCallback", false) end)
+        end
+    end))
+
+    pcall(function()
+        table.insert(conns, GS.MenuOpened:Connect(function()
+            if BLOCK_LEAVE then
+                task.wait(0.05)
+                pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+            end
+        end))
+    end)
+
+    task.spawn(function()
+        while BLOCK_LEAVE do
+            task.wait(0.05)
+            pcall(function()
+                if GS:GetMenuIsOpen() then GS:SetMenuIsOpen(false) end
+            end)
+        end
+    end)
+end
+
+local function UnblockLeave()
+    BLOCK_LEAVE = false
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+        StarterGui:SetCore("TopbarEnabled", true)
+        StarterGui:SetCore("ResetButtonCallback", true)
+    end)
+end
+
+-- ============ 😈 Emoji Storm ============
+local emojiList = {
+    "🚨", "😱", "💀", "🔥", "😂", "🥚",
+    "❌", "⚠️", "🤖", "💥", "😈", "👾",
+    "🎃", "👻", "🤑", "🥶", "🤡", "🤯",
+    "🫠", "😵", "💩", "🎭", "🍕", "🐔"
+}
+
+local function StartEmojiLoop()
+    if emojiLoopRunning then return end
+    emojiLoopRunning = true
+
+    task.spawn(function()
+        while emojiLoopRunning do
+            local emoji = Instance.new("TextLabel", SG)
+            local size = math.random(50, 120)
+            emoji.Size = UDim2.new(0, size, 0, size)
+            emoji.Position = UDim2.new(
+                math.random(0, 95) / 100, 0,
+                math.random(0, 95) / 100, 0
+            )
+            emoji.BackgroundTransparency = 1
+            emoji.Text = emojiList[math.random(1, #emojiList)]
+            emoji.TextSize = size
+            emoji.Font = Enum.Font.SourceSansBold
+            emoji.TextStrokeTransparency = 0
+            emoji.Rotation = math.random(-45, 45)
+            emoji.ZIndex = 99
+            table.insert(texts, emoji)
+
+            task.spawn(function()
+                local sy = emoji.Position.Y.Scale
+                local sr = emoji.Rotation
+                local ut = 0
+                while ut < 2 and emoji.Parent do
+                    ut = ut + 0.05
+                    emoji.Position = UDim2.new(
+                        emoji.Position.X.Scale, 0,
+                        sy - ut * 0.15, 0
+                    )
+                    emoji.Rotation = sr + ut * 40
+                    emoji.TextTransparency = ut / 2
+                    task.wait(0.05)
+                end
+                if emoji.Parent then emoji:Destroy() end
+            end)
+
+            task.wait(0.15)
+        end
+    end)
+end
+
+local function StopEmojiLoop()
+    emojiLoopRunning = false
+    for _, v in ipairs(texts) do
+        pcall(function() v:Destroy() end)
+    end
+    texts = {}
+end
+
+-- ============ Start Prank ============
+local function StartPrank()
+    prankActive = true
+    conns = {}
+    texts = {}
+    originCam = CM.CFrame
+    originFov = CM.FieldOfView
+
+    -- 1. จอแดง
+    local red = Instance.new("Frame", SG)
+    red.Size = UDim2.new(1, 0, 1, 0)
+    red.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    red.BackgroundTransparency = 0.7
+    red.BorderSizePixel = 0
+    red.ZIndex = 50
+
+    -- 2. จอเขียว
+    local green = Instance.new("Frame", SG)
+    green.Size = UDim2.new(1, 0, 1, 0)
+    green.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    green.BackgroundTransparency = 0.85
+    green.BorderSizePixel = 0
+    green.ZIndex = 49
+
+    local t = 0
+    table.insert(conns, R.Heartbeat:Connect(function(dt)
+        if not prankActive then return end
+        t = t + dt
+        red.BackgroundTransparency = 0.3 + math.sin(t * 20) * 0.4
+        green.BackgroundTransparency = 0.5 + math.cos(t * 15) * 0.4
+    end))
+
+    -- 3. กล้องวาป
+    local camT = 0
+    table.insert(conns, R.RenderStepped:Connect(function(dt)
+        if not prankActive then return end
+        camT = camT + dt
+        if math.floor(camT * 7) % 2 == 0 then
+            CM.CFrame = originCam * CFrame.new(
+                math.random(-150, 150) / 10,
+                math.random(-150, 150) / 10,
+                math.random(-150, 150) / 10
+            ) * CFrame.Angles(
+                math.random(-30, 30) / 100,
+                math.random(-30, 30) / 100,
+                math.sin(camT * 3) * 0.3
+            )
+        else
+            CM.CFrame = originCam
+        end
+        CM.FieldOfView = 70 + math.sin(camT * 10) * 25
+    end))
+
+    -- 4. ข้อความกลาง
+    local msg = Instance.new("TextLabel", SG)
+    msg.Size = UDim2.new(1, 0, 0, 200)
+    msg.Position = UDim2.new(0, 0, 0.4, -100)
+    msg.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    msg.BackgroundTransparency = 0.3
+    msg.Text = "🚨 โดนแฮ็ก! 🚨\nเล่นโปรทำไม?"
+    msg.TextColor3 = Color3.fromRGB(255, 255, 255)
+    msg.TextSize = 55
+    msg.Font = Enum.Font.SourceSansBold
+    msg.TextStrokeTransparency = 0
+    msg.ZIndex = 100
+    table.insert(texts, msg)
+
+    local mt = 0
+    table.insert(conns, R.Heartbeat:Connect(function(dt)
+        if not prankActive or not msg.Parent then return end
+        mt = mt + dt
+        msg.TextTransparency = math.abs(math.sin(mt * 12))
+        msg.Rotation = math.sin(mt * 6) * 15
+        msg.BackgroundColor3 = Color3.fromRGB(
+            math.random(150, 255),
+            math.random(0, 80),
+            math.random(0, 80)
+        )
+        msg.TextSize = 55 + math.sin(mt * 10) * 8
+    end))
+
+    -- 5. Emoji Loop
+    StartEmojiLoop()
+
+    -- 6. เสียงบี๊บ
+    for i = 1, 300 do
+        task.delay((i - 1) * 0.25, function()
+            if not prankActive then return end
+            local s = Instance.new("Sound", SS)
+            s.SoundId = "rbxassetid://9120386436"
+            s.Volume = 3
+            s.PlaybackSpeed = math.random(50, 200) / 100
+            s:Play()
+            task.delay(1, function() s:Destroy() end)
+        end)
+    end
+
+    -- 7. ตัวละครวาป
+    table.insert(conns, R.Heartbeat:Connect(function()
+        if not prankActive then return end
+        local ch = LP.Character
+        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        if math.random(1, 5) == 1 then
+            hrp.CFrame = hrp.CFrame * CFrame.new(
+                math.random(-40, 40),
+                math.random(-10, 15),
+                math.random(-40, 40)
+            )
+        end
+    end))
+
+    -- 8. Blur
+    pcall(function()
+        local b = L:FindFirstChild("MZ_Blur")
+        if not b then
+            b = Instance.new("BlurEffect", L)
+            b.Name = "MZ_Blur"
+        end
+        b.Size = 0
+        table.insert(conns, R.Heartbeat:Connect(function()
+            if not prankActive then return end
+            b.Size = 4 + math.sin(tick() * 8) * 4
+        end))
+        conns._blur = b
+    end)
+
+    -- 9. ColorCorrection
+    pcall(function()
+        local c = L:FindFirstChild("MZ_CC")
+        if not c then
+            c = Instance.new("ColorCorrectionEffect", L)
+            c.Name = "MZ_CC"
+        end
+        table.insert(conns, R.Heartbeat:Connect(function()
+            if not prankActive then return end
+            c.TintColor = Color3.fromRGB(
+                math.random(150, 255),
+                math.random(100, 255),
+                math.random(100, 255)
+            )
+        end))
+        conns._cc = c
+    end)
+
+    conns._red = red
+    conns._green = green
+    conns._msg = msg
+end
+
+-- ============ Stop Prank ============
+local function StopPrank()
+    prankActive = false
+    for _, c in ipairs(conns) do
+        pcall(function() c:Disconnect() end)
+    end
+    if conns._red then pcall(function() conns._red:Destroy() end) end
+    if conns._green then pcall(function() conns._green:Destroy() end) end
+    if conns._msg then pcall(function() conns._msg:Destroy() end) end
+    if conns._blur then pcall(function() conns._blur:Destroy() end) end
+    if conns._cc then pcall(function() conns._cc:Destroy() end) end
+    if originCam then CM.CFrame = originCam end
+    if originFov then CM.FieldOfView = originFov end
+
+    StopEmojiLoop()
+    countdownLabel.Visible = false
+
+    conns = {}
+end
+
+-- ============ กล่องใส่คีย์ ============
+local function ShowKeyBox()
+    local box = Instance.new("Frame", SG)
+    box.Size = UDim2.new(0, 340, 0, 260)
+    box.Position = UDim2.new(0.5, -170, 0.5, -130)
+    box.BackgroundColor3 = Color3.fromRGB(15, 10, 20)
+    box.BorderSizePixel = 0
+    box.ZIndex = 500
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 14)
+    local bst = Instance.new("UIStroke", box)
+    bst.Color = Color3.fromRGB(255, 30, 30)
+    bst.Thickness = 3
+
+    local title = Instance.new("TextLabel", box)
+    title.Size = UDim2.new(1, -20, 0, 45)
+    title.Position = UDim2.new(0, 10, 0, 12)
+    title.BackgroundTransparency = 1
+    title.Text = "🔐 ใส่รหัสเพื่อหยุด"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 20
+    title.Font = Enum.Font.SourceSansBold
+    title.ZIndex = 501
+
+    local warning = Instance.new("TextLabel", box)
+    warning.Size = UDim2.new(1, -20, 0, 22)
+    warning.Position = UDim2.new(0, 10, 0, 48)
+    warning.BackgroundTransparency = 1
+    warning.Text = "⚠️ ใส่ผิด → โดนอีก 1 ชั่วโมง!"
+    warning.TextColor3 = Color3.fromRGB(255, 80, 80)
+    warning.TextSize = 13
+    warning.Font = Enum.Font.SourceSansBold
+    warning.ZIndex = 501
+
+    local input = Instance.new("TextBox", box)
+    input.Size = UDim2.new(1, -40, 0, 45)
+    input.Position = UDim2.new(0, 20, 0, 85)
+    input.BackgroundColor3 = Color3.fromRGB(30, 20, 40)
+    input.BorderSizePixel = 0
+    input.Text = ""
+    input.PlaceholderText = "ใส่รหัส..."
+    input.PlaceholderColor3 = Color3.fromRGB(140, 130, 160)
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.TextSize = 18
+    input.Font = Enum.Font.Code
+    input.ClearTextOnFocus = false
+    input.ZIndex = 501
+    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 8)
+
+    local submit = Instance.new("TextButton", box)
+    submit.Size = UDim2.new(1, -40, 0, 44)
+    submit.Position = UDim2.new(0, 20, 1, -56)
+    submit.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+    submit.Text = "ยืนยัน"
+    submit.TextColor3 = Color3.fromRGB(255, 255, 255)
+    submit.TextSize = 16
+    submit.Font = Enum.Font.SourceSansBold
+    submit.ZIndex = 501
+    Instance.new("UICorner", submit).CornerRadius = UDim.new(0, 8)
+
+    local function CheckKey()
+        if input.Text == PRANK_KEY then
+            box:Destroy()
+            StopPrank()
+            UnblockLeave()
+
+            local ok = Instance.new("TextLabel", SG)
+            ok.Size = UDim2.new(1, 0, 0, 100)
+            ok.Position = UDim2.new(0, 0, 0.5, -50)
+            ok.BackgroundColor3 = Color3.fromRGB(30, 200, 80)
+            ok.BackgroundTransparency = 0.3
+            ok.Text = "✅ ปลดล็อคแล้ว"
+            ok.TextColor3 = Color3.fromRGB(255, 255, 255)
+            ok.TextSize = 40
+            ok.Font = Enum.Font.SourceSansBold
+            ok.TextStrokeTransparency = 0
+            ok.ZIndex = 100
+            task.delay(2, function() ok:Destroy() end)
+        else
+            box:Destroy()
+            local bad = Instance.new("TextLabel", SG)
+            bad.Size = UDim2.new(1, 0, 0, 120)
+            bad.Position = UDim2.new(0, 0, 0.5, -60)
+            bad.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+            bad.BackgroundTransparency = 0.3
+            bad.Text = "❌ รหัสผิด!\nโดนต่อ 1 ชั่วโมง!"
+            bad.TextColor3 = Color3.fromRGB(255, 255, 255)
+            bad.TextSize = 30
+            bad.Font = Enum.Font.SourceSansBold
+            bad.TextStrokeTransparency = 0
+            bad.ZIndex = 100
+            task.delay(3, function() bad:Destroy() end)
+
+            -- ⏰ นับถอยหลัง 1 ชั่วโมง
+            UpdateCountdown(PUNISH_TIME)
+
+            -- ⏱️ หลัง 1 ชม. → เปิดกล่องอีกครั้ง
+            task.delay(PUNISH_TIME, function()
+                if prankActive then
+                    countdownLabel.Visible = false
+                    ShowKeyBox()
+                end
+            end)
+        end
+    end
+
+    submit.MouseButton1Click:Connect(CheckKey)
+    input.FocusLost:Connect(function(enter)
+        if enter then CheckKey() end
+    end)
+end
+
+-- ============ เริ่มต้น ============
+StartPrank()
+BlockLeave()
+
+local alert = Instance.new("TextLabel", SG)
+alert.Size = UDim2.new(0, 340, 0, 80)
+alert.Position = UDim2.new(0, 20, 0, 100)
+alert.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+alert.BackgroundTransparency = 0.2
+alert.Text = "🚨 โดนแฮ็ก! 🚨\nเล่นโปรทำไม?"
+alert.TextColor3 = Color3.fromRGB(255, 255, 255)
+alert.TextSize = 18
+alert.Font = Enum.Font.SourceSansBold
+alert.TextStrokeTransparency = 0
+alert.ZIndex = 100
+Instance.new("UICorner", alert).CornerRadius = UDim.new(0, 10)
+
+task.delay(3, function() alert:Destroy() end)
+
+-- ⏱️ หลัง 60 วิ → ขึ้นกล่องใส่คีย์
+task.delay(FIRST_TIME, function()
+    if prankActive then ShowKeyBox() end
+end)
+
+print("═══════════════════════════════")
+print("😈 MZ Hacked V6 — 1 HOUR PUNISH")
+print("🔑 KEY: " .. PRANK_KEY)
+print("⏱️ " .. FIRST_TIME .. " วิ → ใส่คีย์")
+print("😈 ใส่ผิด → โดนต่อ 1 ชั่วโมง!")
+print("═══════════════════════════════")
